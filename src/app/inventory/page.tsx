@@ -23,7 +23,8 @@ import {
   ShieldCheck,
   AlertTriangle,
   History,
-  CheckCircle2
+  CheckCircle2,
+  UploadCloud
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 
@@ -48,6 +49,7 @@ export default function InventoryPage() {
   const [formCondition, setFormCondition] = useState('Used · working');
   const [formWeight, setFormWeight] = useState('10');
   const [formNotes, setFormNotes] = useState('');
+  const [formPhotoName, setFormPhotoName] = useState('');
   const [formSubmitting, setFormSubmitting] = useState(false);
 
   const fetchInventory = async () => {
@@ -93,7 +95,7 @@ export default function InventoryPage() {
           quantity: parseInt(formQty, 10) || 1,
           condition: formCondition,
           approxWeightG: parseFloat(formWeight) || 10,
-          notes: formNotes,
+          notes: formPhotoName ? `${formNotes ? formNotes + ' · ' : ''}Attached photo: ${formPhotoName}` : formNotes,
         }),
       });
 
@@ -101,6 +103,7 @@ export default function InventoryPage() {
         setAddModalOpen(false);
         setFormName('');
         setFormNotes('');
+        setFormPhotoName('');
         await fetchInventory();
       }
     } catch (err) {
@@ -582,6 +585,40 @@ export default function InventoryPage() {
                     onChange={(e) => setFormWeight(e.target.value)}
                     className="w-full bg-[#F6F5EE] border border-[#E5EDE8] rounded-xl px-3 py-2 text-xs text-[#11221B] outline-none"
                   />
+                </div>
+              </div>
+
+              <div>
+                <label className="text-xs font-medium text-[#5A6B63] block mb-1">
+                  Component Photo (optional)
+                </label>
+                <div className="flex items-center space-x-3">
+                  <input
+                    type="file"
+                    accept="image/*"
+                    id="manual-photo-upload"
+                    className="hidden"
+                    onChange={(e) => {
+                      const f = e.target.files?.[0];
+                      if (f) setFormPhotoName(f.name);
+                    }}
+                  />
+                  <label
+                    htmlFor="manual-photo-upload"
+                    className="cursor-pointer inline-flex items-center space-x-1.5 px-3 py-2 rounded-xl border border-[#D5D2C5] bg-white hover:bg-[#F6F5EE] text-xs font-medium text-[#11221B] transition-colors shadow-xs"
+                  >
+                    <UploadCloud className="w-3.5 h-3.5 text-[#5A6B63]" />
+                    <span>{formPhotoName || 'Upload photo'}</span>
+                  </label>
+                  {formPhotoName && (
+                    <button
+                      type="button"
+                      onClick={() => setFormPhotoName('')}
+                      className="text-xs text-[#7E9187] hover:text-[#11221B]"
+                    >
+                      Remove
+                    </button>
+                  )}
                 </div>
               </div>
 
