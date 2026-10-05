@@ -1,0 +1,511 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+model User {
+  id                 String            @id @default(uuid())
+  email              String            @unique
+  name               String
+  avatarUrl          String?
+  role               String            @default("Student / Maker")
+  experienceLevel    String            @default("Beginner")
+  primaryGoal        String?
+  createdAt          DateTime          @default(now())
+  updatedAt          DateTime          @updatedAt
+  workspaces         WorkspaceMember[]
+  activities         InventoryActivity[]
+  savedPlans         SavedPlan[]
+  projectWorkspaces  ProjectWorkspace[]
+  generationRequests ProjectGenerationRequest[]
+  publications       CommunityPublication[]
+  bookmarks          ProjectBookmark[]
+  reactions          ProjectReaction[]
+  comments           ProjectComment[]
+  invitations        WorkspaceInvitation[]
+}
+
+model Workspace {
+  id                 String            @id @default(uuid())
+  name               String            @default("Alex's maker bench")
+  slug               String            @unique @default("alexs-maker-bench")
+  type               String            @default("personal") // "personal", "educational", "lab", "team"
+  description        String?
+  createdAt          DateTime          @default(now())
+  updatedAt          DateTime          @updatedAt
+  members            WorkspaceMember[]
+  components         Component[]
+  savedPlans         SavedPlan[]
+  activities         InventoryActivity[]
+  scans              ComponentScan[]
+  projectWorkspaces  ProjectWorkspace[]
+  generationRequests ProjectGenerationRequest[]
+  impactEvents       ImpactEvent[]
+  invitations        WorkspaceInvitation[]
+}
+
+model WorkspaceMember {
+  id          String    @id @default(uuid())
+  workspaceId String
+  userId      String
+  role        String    @default("owner") // "owner", "admin", "editor", "viewer"
+  createdAt   DateTime  @default(now())
+  workspace   Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  user        User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([workspaceId, userId])
+}
+
+model WorkspaceInvitation {
+  id          String    @id @default(uuid())
+  workspaceId String
+  inviterId   String
+  email       String
+  role        String    @default("editor")
+  token       String    @unique
+  expiresAt   DateTime
+  status      String    @default("pending") // "pending", "accepted", "revoked", "expired"
+  createdAt   DateTime  @default(now())
+
+  workspace   Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  inviter     User      @relation(fields: [inviterId], references: [id], onDelete: Cascade)
+}
+
+model ComponentCategory {
+  id          String      @id @default(uuid())
+  name        String      @unique
+  slug        String      @unique
+  description String?
+  iconName    String?
+  parentId    String?
+  createdAt   DateTime    @default(now())
+  components  Component[]
+}
+
+model Component {
+  id                String                   @id @default(uuid())
+  workspaceId       String
+  categoryId        String
+  name              String
+  normalizedName    String?
+  partNumber        String?
+  manufacturer      String?
+  description       String?
+  quantity          Int                      @default(1)
+  condition         String                   @default("Used · working")
+  status            String                   @default("active") // "active", "reserved", "archived", "reused"
+  location          String                   @default("Bench Drawer A")
+  approxWeightG     Float                    @default(10.0)
+  estimatedValueUsd Float                    @default(5.0)
+  confidenceScore   Int                      @default(96)
+  provenanceSource  String                   @default("scan_ai")
+  photoUrl          String?
+  source            String?                  @default("Rescued electronics")
+  notes             String?
+  scanId            String?
+  createdAt         DateTime                 @default(now())
+  updatedAt         DateTime                 @updatedAt
+
+  workspace         Workspace                @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  category          ComponentCategory        @relation(fields: [categoryId], references: [id])
+  scan              ComponentScan?           @relation(fields: [scanId], references: [id], onDelete: SetNull)
+  specifications    ComponentSpecification[]
+  capabilities      ComponentCapability[]
+  compatibilities   ComponentCompatibility[]
+  safetyFlags       ComponentSafetyFlag[]
+  tags              ComponentTag[]
+  activities        InventoryActivity[]
+  workspaceParts    ProjectWorkspaceComponent[]
+  impactEvents      ImpactEvent[]
+}
+
+model ComponentSpecification {
+  id          String    @id @default(uuid())
+  componentId String
+  key         String
+  value       String
+  provenance  String    @default("catalog")
+  component   Component @relation(fields: [componentId], references: [id], onDelete: Cascade)
+}
+
+model ComponentCapability {
+  id          String    @id @default(uuid())
+  componentId String
+  name        String
+  category    String?
+  provenance  String    @default("inferred")
+  component   Component @relation(fields: [componentId], references: [id], onDelete: Cascade)
+}
+
+model ComponentCompatibility {
+  id            String    @id @default(uuid())
+  componentId   String
+  platform      String
+  isCompatible  Boolean   @default(true)
+  notes         String?
+  component     Component @relation(fields: [componentId], references: [id], onDelete: Cascade)
+}
+
+model ComponentSafetyFlag {
+  id          String    @id @default(uuid())
+  componentId String
+  level       String    @default("info")
+  title       String
+  description String
+  component   Component @relation(fields: [componentId], references: [id], onDelete: Cascade)
+}
+
+model ComponentTag {
+  id          String    @id @default(uuid())
+  componentId String
+  tag         String
+  component   Component @relation(fields: [componentId], references: [id], onDelete: Cascade)
+}
+
+model ComponentScan {
+  id             String    @id @default(uuid())
+  workspaceId    String
+  primaryPhotoUrl String
+  labelPhotoUrl   String?
+  pinPhotoUrl     String?
+  providerName    String   @default("deterministic-demo")
+  modelVersion    String   @default("v2.1-heuristic")
+  status          String   @default("completed")
+  highestConfidence Int    @default(96)
+  summaryText     String?
+  evidenceSummary String?
+  rawPayloadJson  String?
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  workspace       Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  candidates      ComponentIdentificationCandidate[]
+  components      Component[]
+}
+
+model ComponentIdentificationCandidate {
+  id             String        @id @default(uuid())
+  scanId         String
+  rank           Int           @default(1)
+  name           String
+  categoryName   String
+  partNumber     String?
+  manufacturer   String?
+  confidence     Int           @default(90)
+  evidence       String
+  whyExplanation String
+  capabilities   String
+  specifications String
+  safetyNotes    String?
+  disposition    String        @default("suggested")
+
+  scan           ComponentScan @relation(fields: [scanId], references: [id], onDelete: Cascade)
+}
+
+model InventoryActivity {
+  id          String     @id @default(uuid())
+  workspaceId String
+  userId      String?
+  componentId String?
+  action      String
+  details     String
+  createdAt   DateTime   @default(now())
+
+  workspace   Workspace  @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  user        User?      @relation(fields: [userId], references: [id], onDelete: SetNull)
+  component   Component? @relation(fields: [componentId], references: [id], onDelete: SetNull)
+}
+
+model Project {
+  id                 String               @id @default(uuid())
+  projectNumber      String               @unique
+  title              String
+  tagline            String?
+  heroHeading        String?
+  heroSubheading     String?
+  description        String
+  difficulty         String               @default("Beginner friendly")
+  estimatedHours     String               @default("2–3 hours")
+  estimatedExtraCost Float                @default(4.50)
+  flowStages         String               @default("SENSE -> INTERPRET -> SIGNAL")
+  category           String               @default("Environment & Plants")
+  imageUrl           String?
+  schematicUrl       String?
+  codeSnippet        String?
+  buildNotes         String?
+  isFeatured         Boolean              @default(false)
+  createdAt          DateTime             @default(now())
+  updatedAt          DateTime             @updatedAt
+
+  requirements       ProjectRequirement[]
+  buildSteps         ProjectBuildStepTemplate[]
+  savedPlans         SavedPlan[]
+  workspaces         ProjectWorkspace[]
+  publications       CommunityPublication[]
+}
+
+model ProjectRequirement {
+  id               String   @id @default(uuid())
+  projectId        String
+  componentName    String
+  capabilityNeeded String
+  category         String
+  quantityNeeded   Int      @default(1)
+  isOptional       Boolean  @default(false)
+  substitutions    String?
+  unitCostUsd      Float    @default(2.00)
+
+  project          Project  @relation(fields: [projectId], references: [id], onDelete: Cascade)
+}
+
+model ProjectBuildStepTemplate {
+  id             String   @id @default(uuid())
+  projectId      String
+  stepNumber     Int
+  title          String
+  description    String
+  durationMinutes Int     @default(20)
+  safetyWarning  String?
+  milestoneCheck String?
+  project        Project  @relation(fields: [projectId], references: [id], onDelete: Cascade)
+}
+
+model ProjectGenerationRequest {
+  id               String    @id @default(uuid())
+  workspaceId      String
+  userId           String
+  goalText         String
+  skillLevel       String    @default("Beginner friendly")
+  intendedUse      String    @default("Environment & Plants")
+  availableTime    String    @default("2–3 hours")
+  maxBudgetUsd     Float     @default(10.0)
+  constraintsJson  String
+  refinementPrompt String?
+  status           String    @default("completed")
+  createdAt        DateTime  @default(now())
+
+  workspace        Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  user             User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  results          ProjectGenerationResult[]
+}
+
+model ProjectGenerationResult {
+  id                  String                   @id @default(uuid())
+  requestId           String
+  title               String
+  tagline             String
+  oneSentenceValue    String
+  difficulty          String
+  estimatedTime       String
+  estimatedExtraCost  Float
+  estimatedReuseValue Float
+  feasibilityScore    Int                      @default(85)
+  assumptions         String
+  safetyNotes         String
+  reusedPartsJson     String
+  missingPartsJson    String
+  flowStages          String                   @default("INPUT -> PROCESS -> OUTPUT")
+  createdAt           DateTime                 @default(now())
+
+  request             ProjectGenerationRequest @relation(fields: [requestId], references: [id], onDelete: Cascade)
+}
+
+model ProjectWorkspace {
+  id               String                     @id @default(uuid())
+  workspaceId      String
+  userId           String
+  projectId        String?
+  title            String
+  tagline          String?
+  status           String                     @default("in_progress") // "draft", "in_progress", "completed", "paused", "archived"
+  feasibilityScore Int                        @default(86)
+  currentStepIndex Int                        @default(0)
+  notes            String?
+  isPublished      Boolean                    @default(false)
+  completedAt      DateTime?
+  reflection       String?
+  createdAt        DateTime                   @default(now())
+  updatedAt        DateTime                   @updatedAt
+
+  workspace        Workspace                  @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  user             User                       @relation(fields: [userId], references: [id], onDelete: Cascade)
+  project          Project?                   @relation(fields: [projectId], references: [id], onDelete: SetNull)
+  components       ProjectWorkspaceComponent[]
+  buildSteps       ProjectWorkspaceStep[]
+  comments         ProjectComment[]
+  outcome          ProjectOutcome?
+  publication      CommunityPublication?
+  impactEvents     ImpactEvent[]
+}
+
+model ProjectWorkspaceComponent {
+  id                 String           @id @default(uuid())
+  workspaceProjectId String
+  componentName      String
+  matchedComponentId String?
+  quantityNeeded     Int              @default(1)
+  quantityAssigned   Int              @default(1)
+  isSatisfied        Boolean          @default(true)
+  isSubstituted      Boolean          @default(false)
+  substitutionNotes  String?
+  estimatedUnitCost  Float            @default(2.0)
+
+  projectWorkspace   ProjectWorkspace @relation(fields: [workspaceProjectId], references: [id], onDelete: Cascade)
+  inventoryComponent Component?       @relation(fields: [matchedComponentId], references: [id], onDelete: SetNull)
+}
+
+model ProjectWorkspaceStep {
+  id                 String           @id @default(uuid())
+  workspaceProjectId String
+  stepNumber         Int
+  title              String
+  description        String
+  durationMinutes    Int              @default(20)
+  safetyWarning      String?
+  milestoneCheck     String?
+  isCompleted        Boolean          @default(false)
+  completedAt        DateTime?
+
+  projectWorkspace   ProjectWorkspace @relation(fields: [workspaceProjectId], references: [id], onDelete: Cascade)
+}
+
+model ProjectOutcome {
+  id                 String           @id @default(uuid())
+  workspaceProjectId String           @unique
+  summaryStory       String
+  challengesLearned  String?
+  hardwareMods       String?
+  photoUrl           String?
+  totalPartsReused   Int              @default(13)
+  totalCostAvoided   Float            @default(31.50)
+  massDivertedGrams  Float            @default(180.0)
+  completedAt        DateTime         @default(now())
+
+  projectWorkspace   ProjectWorkspace @relation(fields: [workspaceProjectId], references: [id], onDelete: Cascade)
+}
+
+model CommunityPublication {
+  id                 String           @id @default(uuid())
+  workspaceProjectId String?          @unique
+  projectId          String?
+  authorId           String
+  title              String
+  tagline            String
+  description        String
+  difficulty         String           @default("Beginner friendly")
+  category           String           @default("Environment & Plants")
+  estimatedHours     String           @default("2–3 hours")
+  coverImageUrl      String?
+  flowStages         String           @default("SENSE -> INTERPRET -> SIGNAL")
+  partsReusedCount   Int              @default(13)
+  avoidedCostUsd     Float            @default(31.50)
+  divertedMassKg     Float            @default(0.18)
+  tags               String           // JSON string array
+  buildHighlights    String?
+  safetyNotes        String?
+  codeSnippet        String?
+  remixCount         Int              @default(0)
+  helpfulCount       Int              @default(0)
+  isPublished        Boolean          @default(true)
+  createdAt          DateTime         @default(now())
+  updatedAt          DateTime         @updatedAt
+
+  author             User             @relation(fields: [authorId], references: [id], onDelete: Cascade)
+  projectWorkspace   ProjectWorkspace? @relation(fields: [workspaceProjectId], references: [id], onDelete: SetNull)
+  sourceProject      Project?         @relation(fields: [projectId], references: [id], onDelete: SetNull)
+  bookmarks          ProjectBookmark[]
+  reactions          ProjectReaction[]
+  comments           ProjectComment[]
+  remixes            ProjectRemix[]
+}
+
+model ProjectRemix {
+  id                 String               @id @default(uuid())
+  publicationId      String
+  targetWorkspaceId  String
+  authorId           String
+  lineageNotes       String?
+  createdAt          DateTime             @default(now())
+
+  publication        CommunityPublication @relation(fields: [publicationId], references: [id], onDelete: Cascade)
+}
+
+model ProjectBookmark {
+  id            String               @id @default(uuid())
+  userId        String
+  publicationId String
+  createdAt     DateTime             @default(now())
+
+  user          User                 @relation(fields: [userId], references: [id], onDelete: Cascade)
+  publication   CommunityPublication @relation(fields: [publicationId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, publicationId])
+}
+
+model ProjectReaction {
+  id            String               @id @default(uuid())
+  userId        String
+  publicationId String
+  type          String               @default("helpful") // "helpful", "innovative", "reproducible"
+  createdAt     DateTime             @default(now())
+
+  user          User                 @relation(fields: [userId], references: [id], onDelete: Cascade)
+  publication   CommunityPublication @relation(fields: [publicationId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, publicationId, type])
+}
+
+model ProjectComment {
+  id                 String                @id @default(uuid())
+  workspaceProjectId String?
+  publicationId      String?
+  authorId           String
+  authorName         String
+  content            String
+  isResolved         Boolean               @default(false)
+  createdAt          DateTime              @default(now())
+  updatedAt          DateTime              @updatedAt
+
+  author             User                  @relation(fields: [authorId], references: [id], onDelete: Cascade)
+  projectWorkspace   ProjectWorkspace?     @relation(fields: [workspaceProjectId], references: [id], onDelete: Cascade)
+  publication        CommunityPublication? @relation(fields: [publicationId], references: [id], onDelete: Cascade)
+}
+
+model ImpactEvent {
+  id                 String           @id @default(uuid())
+  workspaceId        String
+  componentId        String?
+  workspaceProjectId String?
+  eventType          String           // "component_reused", "build_completed", "component_rescued"
+  quantityUnits      Int              @default(1)
+  massGrams          Float            @default(10.0)
+  avoidedCostUsd     Float            @default(4.50)
+  co2eAvoidedKg      Float            @default(0.18)
+  methodologyVersion String           @default("v3.0-standard")
+  notes              String?
+  occurredAt         DateTime         @default(now())
+
+  workspace          Workspace        @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  component          Component?       @relation(fields: [componentId], references: [id], onDelete: SetNull)
+  projectWorkspace   ProjectWorkspace? @relation(fields: [workspaceProjectId], references: [id], onDelete: SetNull)
+}
+
+model SavedPlan {
+  id               String    @id @default(uuid())
+  workspaceId      String
+  userId           String
+  projectId        String
+  status           String    @default("in_progress")
+  feasibilityScore Int       @default(86)
+  partsReusedCount Int       @default(13)
+  createdAt        DateTime  @default(now())
+  updatedAt        DateTime  @updatedAt
+
+  workspace        Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  user             User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  project          Project   @relation(fields: [projectId], references: [id], onDelete: Cascade)
+}
