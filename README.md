@@ -89,9 +89,37 @@ npm test
 
 ---
 
-## 📋 Phase 2+ Deferred Features
+## 🌐 Deployment to Render
 
-The following items are intentionally deferred to subsequent phases as per specification:
-1. **Live Camera OCR / Vision Model Integration**: Phase 1 establishes the deterministic heuristics, photo capture bounding box, and normalization pipeline.
-2. **LLM Custom Project Generation**: Phase 1 includes curated inventory-matched project catalog and BOM generator.
-3. **Institutional Carbon Ledger**: Community carbon certificates and multi-tenant lab checkouts (preview routes available at `/impact` and `/classroom`).
+This project is configured out-of-the-box for **Render Web Service**:
+
+### Option 1: Blueprint Deploy (Automatic)
+Render automatically detects the included `render.yaml` blueprint:
+1. In [Render Dashboard](https://dashboard.render.com/), click **"New +"** → **"Blueprint"**.
+2. Connect your GitHub repository: `https://github.com/dhananja18m-wq/hackathon-`.
+3. Render reads `render.yaml`, builds, runs database migrations & seeds, and deploys automatically!
+
+### Option 2: Manual Web Service Deploy
+1. In [Render Dashboard](https://dashboard.render.com/), click **"New +"** → **"Web Service"**.
+2. Connect your GitHub repository.
+3. Configure the settings:
+   - **Name**: `secondlife-ai`
+   - **Runtime**: `Node`
+   - **Branch**: `main`
+   - **Build Command**: `npm run render-build`
+   - **Start Command**: `npm run start`
+   - **Plan**: `Free`
+4. In **Environment Variables**, add:
+   - `DATABASE_URL` = `file:./dev.db`
+   - `NODE_ENV` = `production`
+   - `NEXT_PUBLIC_APP_NAME` = `reboard`
+5. Click **"Deploy Web Service"**.
+
+---
+
+## 📋 Features & Roadmap
+
+1. **Intake & Component Upload**: Supports local file upload, drag-and-drop, camera intake, and multi-candidate heuristic identification with manual review.
+2. **Dynamic Project Generation & Feasibility**: 4-tier feasibility scoring algorithm matching inventory parts to real DIY and salvage projects.
+3. **Interactive Workspace Plans**: Step-by-step assembly checklist, firmware viewer, and interactive BOM.
+4. **Lifecycle Ledger & Impact**: Verified mass diverted, CO2e emissions avoided, cost replacement calculations, and community publishing.

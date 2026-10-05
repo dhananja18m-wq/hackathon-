@@ -1,0 +1,15 @@
+services:
+  - type: web
+    name: secondlife-ai
+    runtime: node
+    plan: free
+    region: oregon
+    buildCommand: npm run render-build
+    startCommand: npm run start
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: DATABASE_URL
+        value: file:./dev.db
+      - key: NEXT_PUBLIC_APP_NAME
+        value: reboard
