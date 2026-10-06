@@ -156,6 +156,29 @@ export const SCAN_FIXTURES: Record<string, VisionScanResult> = {
       },
     ],
   },
+  non_electronic: {
+    providerName: 'deterministic-demo-vision',
+    modelVersion: 'v2.1-heuristic',
+    highestConfidence: 0,
+    summaryText: 'No electronic hardware, printed circuit board, or semiconductor leads were recognized in this image.',
+    evidenceSummary: 'Visual analysis indicates a paper document, printed sheet, or non-electronic household object. No PCB substrate, solder pads, or electronic IC packages identified.',
+    candidates: [
+      {
+        rank: 1,
+        name: 'Non-electronic item (Document / Paper)',
+        categoryName: 'Unclassified / Non-electronic',
+        confidence: 0,
+        evidence: 'High luminance planar surface with printed text. Absence of copper traces, silicon packaging, or component leads.',
+        whyExplanation: 'Image does not match any known microcontroller, sensor, passive, or electro-mechanical component catalog entry.',
+        capabilities: [],
+        specifications: [
+          { key: 'Detected Type', value: 'Paper / Printed Sheet' },
+          { key: 'Electronics Status', value: 'Non-electronic item' },
+        ],
+        safetyNotes: 'Paper and non-conductive materials are not suitable for electrical projects.',
+      },
+    ],
+  },
 };
 
 export class MockVisionProvider implements VisionAnalysisProvider {
@@ -167,6 +190,20 @@ export class MockVisionProvider implements VisionAnalysisProvider {
     }
     if (raw.includes('ic') || raw.includes('ambiguous') || raw.includes('unknown') || raw.includes('chip')) {
       return SCAN_FIXTURES.ambiguous;
+    }
+    if (
+      raw.includes('paper') ||
+      raw.includes('doc') ||
+      raw.includes('exam') ||
+      raw.includes('sheet') ||
+      raw.includes('page') ||
+      raw.includes('text') ||
+      raw.includes('saveetha') ||
+      raw.includes('whatsapp') ||
+      raw.includes('nonelectronic') ||
+      raw.includes('non_electronic')
+    ) {
+      return SCAN_FIXTURES.non_electronic;
     }
     // Default to Arduino Uno R3 fixture
     return SCAN_FIXTURES.arduino;

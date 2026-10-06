@@ -145,3 +145,19 @@ describe('ImpactCalculator', () => {
     expect(impact.estimatedTotalValueUsd).toBe(30.5); // 22 + 4.5 + 4*1
   });
 });
+
+describe('MockVisionProvider', () => {
+  it('should identify paper documents and non-electronic items with 0% confidence', async () => {
+    const { MockVisionProvider } = await import('../src/domain/scanner');
+    const provider = new MockVisionProvider();
+
+    const result = await provider.analyze({
+      primaryPhotoUrl: '/uploads/sample-paper.jpg',
+      filename: 'WhatsApp Image 2026-09-04 at 4.43.05 PM.jpeg',
+    });
+
+    expect(result.highestConfidence).toBe(0);
+    expect(result.candidates[0].name).toContain('Non-electronic');
+    expect(result.candidates[0].confidence).toBe(0);
+  });
+});

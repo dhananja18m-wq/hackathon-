@@ -158,7 +158,109 @@ const DEMO_FIXTURES = [
       },
     ],
   },
+  {
+    id: 'non_electronic',
+    label: 'Paper / Non-electronic (0%)',
+    filename: 'paper_document_sample.jpg',
+    filesize: '0.4 MB · Document',
+    summary: 'No electronic hardware, circuit board, or semiconductor leads detected.',
+    isNonElectronic: true,
+    candidates: [
+      {
+        rank: 1,
+        name: 'Non-electronic item (Document / Paper)',
+        categoryName: 'Unclassified / Non-electronic',
+        partNumber: 'N/A',
+        manufacturer: 'N/A',
+        confidence: 0,
+        evidence: 'High luminance planar surface with text. No solder joints, copper traces, or IC packages identified.',
+        whyExplanation: 'Visual pattern matches a paper document or printed sheet. reboard only indexes electronic hardware.',
+        capabilities: [],
+        specifications: [
+          { key: 'Detected Material', value: 'Paper / Printed Sheet' },
+          { key: 'Electronics Status', value: 'Not an electronic component' },
+          { key: 'Suggested Action', value: 'Upload an electronic part' },
+        ],
+        safetyNotes: 'Paper and non-conductive materials are not suitable for circuit building.',
+      },
+    ],
+  },
 ];
+
+// Browser-side canvas image analyzer to detect paper, documents, and non-electronic photos
+const detectImageFeatures = (imgUrl: string): Promise<{ isDocumentOrPaper: boolean; reason: string }> => {
+  return new Promise((resolve) => {
+    if (typeof window === 'undefined') {
+      resolve({ isDocumentOrPaper: false, reason: 'ssr' });
+      return;
+    }
+    const img = new Image();
+    img.crossOrigin = 'anonymous';
+    img.onload = () => {
+      try {
+        const canvas = document.createElement('canvas');
+        const size = 64;
+        canvas.width = size;
+        canvas.height = size;
+        const ctx = canvas.getContext('2d');
+        if (!ctx) {
+          resolve({ isDocumentOrPaper: false, reason: 'canvas-error' });
+          return;
+        }
+        ctx.drawImage(img, 0, 0, size, size);
+        const imgData = ctx.getImageData(0, 0, size, size).data;
+        const totalPixels = size * size;
+
+        let whiteCount = 0;
+        let sumSaturation = 0;
+        let pcbColorCount = 0;
+
+        for (let i = 0; i < imgData.length; i += 4) {
+          const r = imgData[i];
+          const g = imgData[i + 1];
+          const b = imgData[i + 2];
+
+          const max = Math.max(r, g, b);
+          const min = Math.min(r, g, b);
+          const sat = max === 0 ? 0 : (max - min) / max;
+          const lum = 0.299 * r + 0.587 * g + 0.114 * b;
+
+          sumSaturation += sat;
+
+          // Paper / Document pixel: high luminance (white/cream paper) with low saturation
+          if (lum > 155 && sat < 0.22) {
+            whiteCount++;
+          }
+
+          // Distinctive PCB colors (green, blue, red solder mask, copper/gold traces)
+          if (sat > 0.25) {
+            if (g > r * 1.15 && g > b * 1.15) pcbColorCount++; // Green PCB
+            else if (b > r * 1.15 && b > g * 1.15) pcbColorCount++; // Blue PCB
+            else if (r > g * 1.2 && r > b * 1.2) pcbColorCount++; // Red PCB
+            else if (r > 150 && g > 100 && b < 80) pcbColorCount++; // Copper / gold
+          }
+        }
+
+        const whiteRatio = whiteCount / totalPixels;
+        const avgSat = sumSaturation / totalPixels;
+        const pcbRatio = pcbColorCount / totalPixels;
+
+        // A document or paper typically has > 48% near-white pixels and very low average color saturation (< 0.22)
+        // without typical PCB color dominance
+        const isDocument = (whiteRatio > 0.48 && avgSat < 0.22 && pcbRatio < 0.05) || (whiteRatio > 0.68 && avgSat < 0.25);
+
+        resolve({
+          isDocumentOrPaper: isDocument,
+          reason: isDocument ? `Document pattern detected (${Math.round(whiteRatio * 100)}% paper surface)` : 'electronics',
+        });
+      } catch {
+        resolve({ isDocumentOrPaper: false, reason: 'eval-fallback' });
+      }
+    };
+    img.onerror = () => resolve({ isDocumentOrPaper: false, reason: 'img-error' });
+    img.src = imgUrl;
+  });
+};
 
 export default function IdentifyPage() {
   const router = useRouter();
@@ -176,6 +278,7 @@ export default function IdentifyPage() {
 
   // Form Fields
   const currentCandidate = selectedFixture.candidates.find((c) => c.rank === activeCandidateRank) || selectedFixture.candidates[0];
+  const isNonElectronicItem = currentCandidate.confidence === 0 || !!(selectedFixture as any).isNonElectronic;
   const [name, setName] = useState(currentCandidate.name);
   const [categoryName, setCategoryName] = useState(currentCandidate.categoryName);
   const [weight, setWeight] = useState('25');
@@ -185,7 +288,7 @@ export default function IdentifyPage() {
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [successToast, setSuccessToast] = useState<string | null>(null);
 
-  const processUploadedFile = (file: File) => {
+  const processUploadedFile = async (file: File) => {
     if (!file || !file.type.startsWith('image/')) {
       alert('Please upload a valid image file (PNG, JPG, WebP, etc.).');
       return;
@@ -205,8 +308,31 @@ export default function IdentifyPage() {
     setIsAnalyzing(true);
     setActiveStep(2);
 
-    // Smart heuristic matching from filename
+    // Check image contents via canvas analysis
+    const analysis = await detectImageFeatures(previewUrl);
+
+    // Filename keyword check
     const lower = file.name.toLowerCase();
+    const isDocFilename = lower.includes('paper') || lower.includes('doc') || lower.includes('exam') ||
+      lower.includes('sheet') || lower.includes('page') || lower.includes('text') || lower.includes('saveetha') ||
+      lower.includes('note') || lower.includes('pdf') || lower.includes('receipt') || lower.includes('bill');
+
+    const isNonElectronic = analysis.isDocumentOrPaper || isDocFilename;
+
+    if (isNonElectronic) {
+      const nonElec = DEMO_FIXTURES.find((f) => f.id === 'non_electronic') || DEMO_FIXTURES[3];
+      setSelectedFixture(nonElec);
+      setActiveCandidateRank(1);
+      setTimeout(() => {
+        setIsAnalyzing(false);
+        setName('Non-electronic item (Document / Paper)');
+        setCategoryName('Unclassified / Non-electronic');
+        setWeight('0');
+      }, 400);
+      return;
+    }
+
+    // Hardware heuristic matching
     let targetFixture = DEMO_FIXTURES[0]; // Arduino
     let detectedCategory = 'Microcontroller board';
     let detectedWeight = '25';
@@ -232,10 +358,8 @@ export default function IdentifyPage() {
 
     // Determine component name
     let cleanName = file.name.replace(/\.[^/.]+$/, '').replace(/[-_]/g, ' ').trim();
-    // Capitalize words
     cleanName = cleanName.split(' ').map((w) => w.charAt(0).toUpperCase() + w.slice(1)).join(' ');
-
-    const isGenericFilename = /^(Image|Img|Photo|Pxl|Dsc|Capture|Scan|Screenshot|File|\d+)/i.test(cleanName);
+    const isGenericFilename = /^(Image|Img|Photo|Pxl|Dsc|Capture|Scan|Screenshot|File|Whatsapp|\d+)/i.test(cleanName);
 
     setSelectedFixture(targetFixture);
     setActiveCandidateRank(1);
@@ -260,7 +384,7 @@ export default function IdentifyPage() {
     const top = fixture.candidates[0];
     setName(top.name);
     setCategoryName(top.categoryName);
-    setWeight(fixture.id === 'arduino' ? '25' : fixture.id === 'soil' ? '9' : '1');
+    setWeight(fixture.id === 'arduino' ? '25' : fixture.id === 'soil' ? '9' : fixture.id === 'non_electronic' ? '0' : '1');
     setIsEditingCustom(false);
   };
 
@@ -500,7 +624,7 @@ export default function IdentifyPage() {
                 </div>
               ) : (
                 /* Bounding Box Outline */
-                <div className="relative p-2 border-2 border-[#D4F55C] rounded-xl shadow-lg max-h-[240px] flex items-center justify-center">
+                <div className={`relative p-2 border-2 ${isNonElectronicItem ? 'border-[#EF4444]' : 'border-[#D4F55C]'} rounded-xl shadow-lg max-h-[240px] flex items-center justify-center`}>
                   {uploadedImageUrl ? (
                     <img
                       src={uploadedImageUrl}
@@ -510,8 +634,8 @@ export default function IdentifyPage() {
                   ) : (
                     <ArduinoIllustration className="w-64 h-auto" />
                   )}
-                  <div className="absolute -top-3 -right-2 bg-[#D4F55C] text-[#0F382A] text-[10px] font-mono font-bold px-1.5 py-0.5 rounded shadow-sm z-10">
-                    {currentCandidate.confidence}% Match
+                  <div className={`absolute -top-3 -right-2 ${isNonElectronicItem ? 'bg-[#EF4444] text-white' : 'bg-[#D4F55C] text-[#0F382A]'} text-[10px] font-mono font-bold px-1.5 py-0.5 rounded shadow-sm z-10`}>
+                    {isNonElectronicItem ? '0% Match · Non-electronic' : `${currentCandidate.confidence}% Match`}
                   </div>
                 </div>
               )}
@@ -527,9 +651,22 @@ export default function IdentifyPage() {
                   {customMeta ? customMeta.filesize : selectedFixture.filesize}
                 </div>
               </div>
-              <span className="inline-flex items-center space-x-1 px-2.5 py-1 rounded-md bg-[#EBF7EE] text-[#1B6F3E] font-mono text-[11px] font-semibold border border-[#D0ECD7]">
-                <CheckCircle2 className="w-3.5 h-3.5 text-[#1B6F3E]" />
-                <span>{uploadedImageUrl ? 'Ready for bench' : 'Scan complete'}</span>
+              <span className={`inline-flex items-center space-x-1 px-2.5 py-1 rounded-md font-mono text-[11px] font-semibold border ${
+                isNonElectronicItem
+                  ? 'bg-[#FEF2F2] text-[#DC2626] border-[#FECACA]'
+                  : 'bg-[#EBF7EE] text-[#1B6F3E] border-[#D0ECD7]'
+              }`}>
+                {isNonElectronicItem ? (
+                  <>
+                    <AlertTriangle className="w-3.5 h-3.5 text-[#DC2626]" />
+                    <span>Non-electronic item</span>
+                  </>
+                ) : (
+                  <>
+                    <CheckCircle2 className="w-3.5 h-3.5 text-[#1B6F3E]" />
+                    <span>{uploadedImageUrl ? 'Ready for bench' : 'Scan complete'}</span>
+                  </>
+                )}
               </span>
             </div>
 
@@ -578,11 +715,40 @@ export default function IdentifyPage() {
                 <span>AI Identification (Rank {activeCandidateRank} of {selectedFixture.candidates.length})</span>
               </div>
               <span className={`text-xs font-mono font-bold px-2.5 py-1 rounded-md ${
-                currentCandidate.confidence >= 80 ? 'bg-[#D4F55C] text-[#0F382A]' : 'bg-[#FEF3C7] text-[#92400E]'
+                isNonElectronicItem
+                  ? 'bg-[#FEE2E2] text-[#991B1B]'
+                  : currentCandidate.confidence >= 80
+                  ? 'bg-[#D4F55C] text-[#0F382A]'
+                  : 'bg-[#FEF3C7] text-[#92400E]'
               }`}>
-                {currentCandidate.confidence}% confidence
+                {isNonElectronicItem ? '0% confidence · Non-electronic' : `${currentCandidate.confidence}% confidence`}
               </span>
             </div>
+
+            {/* Warning Box for Non-electronic items */}
+            {isNonElectronicItem && (
+              <div className="p-4 bg-[#FEF2F2] border border-[#FECACA] rounded-2xl text-xs text-[#991B1B] space-y-2 animate-in fade-in">
+                <div className="font-semibold text-sm flex items-center space-x-2 text-[#7F1D1D]">
+                  <AlertTriangle className="w-4 h-4 text-[#DC2626] shrink-0" />
+                  <span>Not an Electronic Device Detected</span>
+                </div>
+                <p className="text-xs text-[#991B1B] leading-relaxed">
+                  No PCB substrate, circuit pins, or semiconductor chips were found in this image. It appears to be a paper document, printed sheet, or non-electronic household item.
+                </p>
+                <div className="pt-1 flex items-center space-x-3">
+                  <button
+                    type="button"
+                    onClick={() => fileInputRef.current?.click()}
+                    className="px-3.5 py-1.5 rounded-xl bg-[#DC2626] text-white font-medium text-xs hover:bg-[#B91C1C] transition-colors shadow-xs"
+                  >
+                    Upload an electronic part
+                  </button>
+                  <span className="text-[11px] text-[#7F1D1D]">
+                    or select a demo hardware fixture above
+                  </span>
+                </div>
+              </div>
+            )}
 
             {/* Candidate Selector Tabs if multi-candidate */}
             {selectedFixture.candidates.length > 1 && (
@@ -657,6 +823,8 @@ export default function IdentifyPage() {
                     <option value="Interface">Interface</option>
                     <option value="Power">Power</option>
                     <option value="Passive">Passive</option>
+                    <option value="Enclosure / Raw Material">Enclosure / Raw Material</option>
+                    <option value="Unclassified / Non-electronic">Unclassified / Non-electronic</option>
                   </select>
                 </div>
 
@@ -683,16 +851,22 @@ export default function IdentifyPage() {
                 <label className="text-xs text-[#5A6B63] font-medium block">
                   Inferred capabilities
                 </label>
-                <div className="flex flex-wrap gap-2">
-                  {currentCandidate.capabilities.map((cap) => (
-                    <span
-                      key={cap}
-                      className="px-2.5 py-1 rounded-lg bg-[#E5EDE8] text-[#113E2F] text-xs font-medium border border-[#D3E0D8]"
-                    >
-                      {cap}
-                    </span>
-                  ))}
-                </div>
+                {isNonElectronicItem ? (
+                  <div className="p-3 bg-[#F9FAFB] border border-[#E5E7EB] rounded-xl text-xs text-[#6B7280] italic">
+                    No electrical capabilities available for paper documents or non-electronic items.
+                  </div>
+                ) : (
+                  <div className="flex flex-wrap gap-2">
+                    {currentCandidate.capabilities.map((cap) => (
+                      <span
+                        key={cap}
+                        className="px-2.5 py-1 rounded-lg bg-[#E5EDE8] text-[#113E2F] text-xs font-medium border border-[#D3E0D8]"
+                      >
+                        {cap}
+                      </span>
+                    ))}
+                  </div>
+                )}
               </div>
 
               {/* Safety Guidance if present */}
@@ -749,28 +923,55 @@ export default function IdentifyPage() {
 
             {/* Action Buttons */}
             <div className="space-y-3 pt-2">
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                <button
-                  onClick={handleConfirmAndSave}
-                  disabled={isSubmitting}
-                  className="w-full py-3 px-4 rounded-xl bg-[#0F382A] hover:bg-[#144232] text-white text-xs font-semibold flex items-center justify-center space-x-2 transition-all shadow-sm active:scale-98 disabled:opacity-50"
-                >
-                  {isSubmitting ? (
-                    <RefreshCw className="w-4 h-4 animate-spin text-[#D4F55C]" />
-                  ) : (
-                    <Check className="w-4 h-4 text-[#D4F55C]" />
-                  )}
-                  <span>Confirm & add to inventory</span>
-                </button>
+              {isNonElectronicItem ? (
+                <div className="space-y-3">
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                    <button
+                      type="button"
+                      onClick={() => fileInputRef.current?.click()}
+                      className="w-full py-3 px-4 rounded-xl bg-[#0F382A] hover:bg-[#144232] text-white text-xs font-semibold flex items-center justify-center space-x-2 transition-all shadow-sm active:scale-98"
+                    >
+                      <UploadCloud className="w-4 h-4 text-[#D4F55C]" />
+                      <span>Upload electronic component</span>
+                    </button>
 
-                <button
-                  onClick={() => setIsEditingCustom(!isEditingCustom)}
-                  className="w-full py-3 px-4 rounded-xl border border-[#D5D2C5] bg-white hover:bg-[#F6F5EE] text-[#11221B] text-xs font-semibold flex items-center justify-center space-x-2 transition-colors"
-                >
-                  <Edit2 className="w-3.5 h-3.5 text-[#5A6B63]" />
-                  <span>{isEditingCustom ? 'Done editing' : 'Correct identification'}</span>
-                </button>
-              </div>
+                    <button
+                      type="button"
+                      onClick={() => setIsEditingCustom(!isEditingCustom)}
+                      className="w-full py-3 px-4 rounded-xl border border-[#D5D2C5] bg-white hover:bg-[#F6F5EE] text-[#11221B] text-xs font-semibold flex items-center justify-center space-x-2 transition-colors"
+                    >
+                      <Edit2 className="w-3.5 h-3.5 text-[#5A6B63]" />
+                      <span>{isEditingCustom ? 'Done editing' : 'Correct manually'}</span>
+                    </button>
+                  </div>
+                  <div className="text-[11px] text-[#DC2626] font-medium text-center">
+                    ⚠️ Non-electronic items cannot be cataloged as circuit components.
+                  </div>
+                </div>
+              ) : (
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                  <button
+                    onClick={handleConfirmAndSave}
+                    disabled={isSubmitting}
+                    className="w-full py-3 px-4 rounded-xl bg-[#0F382A] hover:bg-[#144232] text-white text-xs font-semibold flex items-center justify-center space-x-2 transition-all shadow-sm active:scale-98 disabled:opacity-50"
+                  >
+                    {isSubmitting ? (
+                      <RefreshCw className="w-4 h-4 animate-spin text-[#D4F55C]" />
+                    ) : (
+                      <Check className="w-4 h-4 text-[#D4F55C]" />
+                    )}
+                    <span>Confirm & add to inventory</span>
+                  </button>
+
+                  <button
+                    onClick={() => setIsEditingCustom(!isEditingCustom)}
+                    className="w-full py-3 px-4 rounded-xl border border-[#D5D2C5] bg-white hover:bg-[#F6F5EE] text-[#11221B] text-xs font-semibold flex items-center justify-center space-x-2 transition-colors"
+                  >
+                    <Edit2 className="w-3.5 h-3.5 text-[#5A6B63]" />
+                    <span>{isEditingCustom ? 'Done editing' : 'Correct identification'}</span>
+                  </button>
+                </div>
+              )}
 
               <div className="text-[11px] text-[#7E9187] text-center">
                 You’re in control. AI suggestions are never saved without your explicit confirmation.
